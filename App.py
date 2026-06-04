@@ -135,41 +135,54 @@ def get_video_transcript_pure_python(video_id):
         return ""
 
 def analyze_with_gemini(title, description, script_text, comments_list):
-    """안정적인 공식 모델 명칭을 활용하여 글로벌 분석 리포트 생성"""
-    try:
-        # 🎯 [수정 포인트] 구글 v1beta API 버전에서 404 에러가 나지 않는 가장 범용적인 'gemini-1.5-flash-latest' 스트링 모델 명칭으로 교체했습니다.
-        model = genai.GenerativeModel('gemini-1.5-flash-latest')
-        
-        has_script = "있음" if script_text else "없음 (제공된 영상 설명과 댓글 위주로 분석 필요)"
-        display_script = script_text if script_text else "자막 데이터가 제공되지 않은 영상입니다."
-        comments_block = "\n".join(comments_list) if comments_list else "가져온 댓글이 없습니다."
-        
-        prompt = f"""
-        당신은 글로벌 유튜브 알고리즘과 콘텐츠 마케팅 전문가입니다.
-        제공된 유튜브 영상의 메타데이터와 데이터를 종합 분석하여 이 영상의 '떡상(흥행)' 핵심 성공 요인을 예리하게 분석해 주세요.
-        
-        [⚠️ 중요 지침]: 
-        제공된 자막이나 댓글이 일본어, 영어 등 '외국어'로 되어 있더라도, 당신은 내용을 완벽히 파악한 뒤
-        **최종 리포트는 무조건 이해하기 쉬운 깔끔한 '한국어'로만 작성**해야 합니다. 외국어 댓글 반응을 인용할 때도 한국어 번역을 곁들여 주세요.
-        
-        [영상 제목]: {title}
-        [영상 설명]: {description[:1000]}
-        [자막 유무]: {has_script}
-        [영상 자막]: {display_script}
-        [시청자 댓글 반응 샘플]:
-        {comments_block}
-        
-        다음 구조에 맞춰 마크다운(Markdown) 형식으로 가독성 좋게 분석 리포트를 작성해 주세요:
-        1. ⚡ **초반 시선 강탈(Hooking) 요인**: 제목, 썸네일 분위기, 그리고 영상 설명이나 자막 초반부를 토대로 시청자를 어떻게 유입시키고 붙잡았는지 분석해 주세요.
-        2. 🎨 **콘텐츠 구성 및 포맷 특징**: 자막(대사) 혹은 댓글 흐름을 보아 유저들이 이 영상에 왜 몰입하고 끝까지 보는지 기승전결 구성을 설명해 주세요.
-        3. 💬 **글로벌 시청자 반응 분석**: 제공된 댓글 반응을 분석하여(외국어인 경우 핵심 트렌드 번역 포함), 시청자들이 특히 어떤 포인트에 열광하거나 감동했는지 '참여 유도 요인'을 짚어주세요.
-        4. 💡 **크리에이터를 위한 벤치마킹 한 줄 팁**: 이 영상의 성공 공식 중 내 채널에 바로 적용할 수 있는 가장 핵심적인 인사이트를 요약해 주세요.
-        """
-        
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        return f"🚨 Gemini AI 분석 중 오류가 발생했습니다: {str(e)}"
+    """v1beta API 버전 오류를 원천 우회하는 다중 보완 모델 로직"""
+    # 🎯 [핵심 변경] 어떤 API 버전 노드에서도 강제 매핑되는 풀 리소스 네임 우선 선언 후 예외 보완체계 구축
+    model_names = ['models/gemini-1.5-flash', 'gemini-pro']
+    
+    response_text = ""
+    last_error = None
+    
+    # 순회하면서 내 환경에서 살아있는 모델을 찾아 분석을 완수합니다.
+    for model_name in model_names:
+        try:
+            model = genai.GenerativeModel(model_name)
+            
+            has_script = "있음" if script_text else "없음 (제공된 영상 설명과 댓글 위주로 분석 필요)"
+            display_script = script_text if script_text else "자막 데이터가 제공되지 않은 영상입니다."
+            comments_block = "\n".join(comments_list) if comments_list else "가져온 댓글이 없습니다."
+            
+            prompt = f"""
+            당신은 글로벌 유튜브 알고리즘과 콘텐츠 마케팅 전문가입니다.
+            제공된 유튜브 영상의 메타데이터와 데이터를 종합 분석하여 이 영상의 '떡상(흥행)' 핵심 성공 요인을 예리하게 분석해 주세요.
+            
+            [⚠️ 중요 지침]: 
+            제공된 자막이나 댓글이 일본어, 영어 등 '외국어'로 되어 있더라도, 당신은 내용을 완벽히 파악한 뒤
+            **최종 리포트는 무조건 이해하기 쉬운 깔끔한 '한국어'로만 작성**해야 합니다. 외국어 댓글 반응을 인용할 때도 한국어 번역을 곁들여 주세요.
+            
+            [영상 제목]: {title}
+            [영상 설명]: {description[:1000]}
+            [자막 유무]: {has_script}
+            [영상 자막]: {display_script}
+            [시청자 댓글 반응 샘플]:
+            {comments_block}
+            
+            다음 구조에 맞춰 마크다운(Markdown) 형식으로 가독성 좋게 분석 리포트를 작성해 주세요:
+            1. ⚡ **초반 시선 강탈(Hooking) 요인**: 제목, 썸네일 분위기, 그리고 영상 설명이나 자막 초반부를 토대로 시청자를 어떻게 유입시키고 붙잡았는지 분석해 주세요.
+            2. 🎨 **콘텐츠 구성 및 포맷 특징**: 자막(대사) 혹은 댓글 흐름을 보아 유저들이 이 영상에 왜 몰입하고 끝까지 보는지 기승전결 구성을 설명해 주세요.
+            3. 💬 **글로벌 시청자 반응 분석**: 제공된 댓글 반응을 분석하여(외국어인 경우 핵심 트렌드 번역 포함), 시청자들이 특히 어떤 포인트에 열광하거나 감동했는지 '참여 유도 요인'을 짚어주세요.
+            4. 💡 **크리에이터를 위한 벤치마킹 한 줄 팁**: 이 영상의 성공 공식 중 내 채널에 바로 적용할 수 있는 가장 핵심적인 인사이트를 요약해 주세요.
+            """
+            
+            response = model.generate_content(prompt)
+            response_text = response.text
+            if response_text:
+                return response_text # 분석 성공 시 즉시 결과 반환
+        except Exception as e:
+            last_error = e
+            continue # 실패 시 다음 모델(`gemini-pro`)로 우회 처리
+            
+    # 모든 모델이 실패했을 경우 최종 에러 반환
+    return f"🚨 Gemini AI 모든 모델 분석 실패. 최종 에러: {str(last_error)}"
 
 # ==========================================
 # 2. Streamlit UI 메인 화면 구성
@@ -203,40 +216,43 @@ if st.button("성공 포인트 정밀 분석하기 🔍", type="primary"):
                     script = get_video_transcript_pure_python(video_id)
                     comments_data = get_video_comments(video_id)
                     
-                    # 3. Gemini AI 분석 수행 (다국어 처리 지침 포함)
+                    # 3. Gemini AI 분석 수행 (다중 탐색 모델 적용)
                     analysis_report = analyze_with_gemini(meta['title'], meta['description'], script, comments_data)
                     
-                    st.success("🎯 글로벌 트렌드 분석 완료!")
-                    
-                    col1, col2 = st.columns([1, 1.3])
-                    
-                    with col1:
-                        st.subheader("📺 분석 대상 영상 정보")
-                        st.image(meta['thumbnail'], use_container_width=True)
-                        st.markdown(f"### **{meta['title']}**")
-                        st.markdown(f"👤 **채널명:** {meta['channel_title']}")
-                        st.markdown(f"👀 **조회수:** {meta['view_count']:,}회 | ❤️ **좋아요:** {meta['like_count']:,}개")
+                    if "🚨 Gemini AI 모든 모델 분석 실패" in analysis_report:
+                        st.error(analysis_report)
+                    else:
+                        st.success("🎯 글로벌 트렌드 분석 완료!")
                         
-                        st.video(video_url)
+                        col1, col2 = st.columns([1, 1.3])
                         
-                        # 자막 데이터 확인 창
-                        with st.expander("📝 추출된 자막 데이터 상태"):
-                            if script:
-                                st.write(script)
-                            else:
-                                st.info("본 영상은 대사 자막이 추출되지 않아 영상 정보 및 댓글 기반으로 분석을 대체 진행했습니다.")
-                                
-                        # 수집된 원본 댓글 반응 확인 창
-                        with st.expander("💬 수집된 시청자 댓글 반응 샘플"):
-                            if comments_data:
-                                for i, c in enumerate(comments_data, 1):
-                                    st.markdown(f"**{i}.** {c}")
-                            else:
-                                st.info("댓글을 가져오지 못했거나 댓글 기능이 닫힌 영상입니다.")
-                        
-                    with col2:
-                        st.subheader("💡 Gemini AI 흥행 요인 정밀 분석")
-                        st.markdown(analysis_report)
+                        with col1:
+                            st.subheader("📺 분석 대상 영상 정보")
+                            st.image(meta['thumbnail'], use_container_width=True)
+                            st.markdown(f"### **{meta['title']}**")
+                            st.markdown(f"👤 **채널명:** {meta['channel_title']}")
+                            st.markdown(f"👀 **조회수:** {meta['view_count']:,}회 | ❤️ **좋아요:** {meta['like_count']:,}개")
+                            
+                            st.video(video_url)
+                            
+                            # 자막 데이터 확인 창
+                            with st.expander("📝 추출된 자막 데이터 상태"):
+                                if script:
+                                    st.write(script)
+                                else:
+                                    st.info("본 영상은 대사 자막이 추출되지 않아 영상 정보 및 댓글 기반으로 분석을 대체 진행했습니다.")
+                                    
+                            # 수집된 원본 댓글 반응 확인 창
+                            with st.expander("💬 수집된 시청자 댓글 반응 샘플"):
+                                if comments_data:
+                                    for i, c in enumerate(comments_data, 1):
+                                        st.markdown(f"**{i}.** {c}")
+                                else:
+                                    st.info("댓글을 가져오지 못했거나 댓글 기능이 닫힌 영상입니다.")
+                            
+                        with col2:
+                            st.subheader("💡 Gemini AI 흥행 요인 정밀 분석")
+                            st.markdown(analysis_report)
                         
                 except Exception as error:
                     st.error(f"🚨 작업 중 에러 발생: {str(error)}")
