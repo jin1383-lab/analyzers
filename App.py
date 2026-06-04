@@ -135,11 +135,11 @@ def get_video_transcript_pure_python(video_id):
 
 def analyze_with_gemini_direct_http(title, description, script_text, comments_list):
     """
-    🎯 [엔드포인트 주소 정밀 수정]
-    v1의 404 에러를 타파하기 위해 최신 API 노드인 v1beta 주소 체계로 변경했습니다.
+    🎯 [404 에러 타파 정밀 패치]
+    구글 AI 스튜디오 v1 공식 규격 엔드포인트와 표준 REST API JSON 본문 구조를 사용합니다.
     """
-    # 🛠️ 구글 AI 스튜디오 최신 API 라우팅 엔드포인트 주소로 전면 교체
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
+    # 🛠️ 구글 API 표준 공식 라우팅 엔드포인트 URL로 재설정 (v1 기반 공식 주소)
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
     
     has_script = "있음" if script_text else "없음 (제공된 영상 설명과 댓글 위주로 분석 필요)"
     display_script = script_text if script_text else "자막 데이터가 제공되지 않은 영상입니다."
@@ -167,6 +167,7 @@ def analyze_with_gemini_direct_http(title, description, script_text, comments_li
     4. 💡 **크리에이터를 위한 벤치마킹 한 줄 팁**: 이 영상의 성공 공식 중 내 채널에 바로 적용할 수 있는 가장 핵심적인 인사이트를 요약해 주세요.
     """
     
+    # 🛠️ 구글 API 스튜디오 표준 REST 데이터 스키마와 완벽 일치하도록 페이로드 구성
     payload = {
         "contents": [
             {
@@ -195,6 +196,13 @@ def analyze_with_gemini_direct_http(title, description, script_text, comments_li
                 return parts[0].get('text', '리포트 생성 실패')
                 
         return f"🚨 구글 API 응답 구조 이상: {json.dumps(res_json)}"
+    except urllib.error.HTTPError as http_err:
+        # HTTP 에러 발생 시 서버가 반환한 구체적인 에러 메시지를 솎아내기 위함
+        try:
+            error_body = http_err.read().decode('utf-8')
+            return f"🚨 구글 API 서버 HTTP 에러 ({http_err.code}): {error_body}"
+        except:
+            return f"🚨 구글 API 서버 HTTP 에러 ({http_err.code}): {http_err.reason}"
     except Exception as e:
         return f"🚨 순수 HTTP 통신 중 오류가 발생했습니다: {str(e)}"
 
@@ -230,7 +238,7 @@ if st.button("성공 포인트 정밀 분석하기 🔍", type="primary"):
                     script = get_video_transcript_pure_python(video_id)
                     comments_data = get_video_comments(video_id)
                     
-                    # 3. Gemini AI 분석 수행 (v1beta 순수 HTTP 호출)
+                    # 3. Gemini AI 분석 수행 (v1 순수 HTTP 호출)
                     analysis_report = analyze_with_gemini_direct_http(meta['title'], meta['description'], script, comments_data)
                     
                     if "🚨" in analysis_report[:10]:
