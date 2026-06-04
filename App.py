@@ -1,10 +1,11 @@
 import os
 import sys
 import re
+import json
+import urllib.request
 import streamlit as st
 from googleapiclient.discovery import build
 import google.generativeai as genai
-import youtube_transcript_api
 
 # Streamlit Cloud 환경에서 내부 모듈 인식 오류 방지
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -32,7 +33,7 @@ except Exception as e:
 # ==========================================
 
 def extract_video_id(url):
-    """유튜브 URL에서 11자리 Video ID 추출 (주소 뒤 공백/파라미터 제거 보강)"""
+    """유튜브 URL에서 11자리 Video ID 추출"""
     url = url.strip()
     pattern = r'(?:v=|\/|be\/|embed\/|shorts\/)([0-9A-Za-z_-]{11})'
     match = re.search(pattern, url)
@@ -62,39 +63,80 @@ def get_video_details(video_id):
     except Exception as e:
         raise RuntimeError(f"유튜브 메타데이터 로드 실패: {str(e)}")
 
-def get_video_transcript(video_id):
+def get_video_transcript_pure_python(video_id):
     """
-    [우회 로직 적용]has no attribute 'get_transcript' 에러를 완벽히 우회하기 위해 
-    list_transcripts() 객체를 통해 내부 자막 딕셔너리를 직접 파싱합니다.
+    [🚨 문제 해결을 위한 완전 우회 기법]
+    문제가 되던 외부 youtube-transcript-api 라이브러리를 완전히 제거했습니다.
+    유튜브 영상의 껍데기 HTML에서 자막 파일 주소(Timedtext URL)를 정규식으로 직접 솎아낸 뒤,
+    XML 자막 데이터를 순수 텍스트로 가공하여 가져옵니다.
     """
     try:
-        # 1. 영상에 등록된 모든 자막 리스트를 먼저 가져옵니다 (가장 안전한 메서드)
-        transcript_list_obj = youtube_transcript_api.YouTubeTranscriptApi.list_transcripts(video_id)
+        video_url = f"https://www.youtube.com/watch?v={video_id}"
         
-        try:
-            # 한국어 자막 탐색 수집
-            srt = transcript_list_obj.find_transcript(['ko'])
-        except:
-            try:
-                # 한국어가 없으면 영어 자막 탐색
-                srt = transcript_list_obj.find_transcript(['en'])
-            except:
-                # 둘 다 없으면 자동으로 생성된 첫 번째 자막 강제 선택
-                srt = transcript_list_obj.find_generated_transcript(['ko', 'en'])
+        # 봇 차단을 피하기 위해 흔한 브라우저 헤더를 세팅합니다.
+        req = urllib.request.Request(
+            video_url, 
+            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        )
+        
+        with urllib.request.urlopen(req) as response:
+            html = response.read().decode('utf-8')
+            
+        # 유튜브가 숨겨놓은 자막 기본 데이터 주소 캡처
+        if 'playerCaptionsTracklistRenderer' not in html:
+            raise RuntimeError("이 영상은 자막(CC) 정보가 내장되어 있지 않거나 차단된 영상입니다.")
+            
+        # 정규식으로 자막 JSON 덩어리 추출
+        captions_json_match = re.search(r'"playerCaptionsTracklistRenderer":\s*({.*?})\s*,\s*"videoDetails"', html)
+        if not captions_json_match:
+            captions_json_match = re.search(r'"playerCaptionsTracklistRenderer":\s*({.*?})\s*}', html)
+            
+        if captions_json_match:
+            captions_json = json.loads(captions_json_match.group(1))
+            caption_tracks = captions_json.get('captionTracks', [])
+            
+            if not caption_tracks:
+                raise RuntimeError("추출 가능한 자막 트랙이 비어 있습니다.")
                 
-        # 2. 선택된 자막 데이터를 텍스트로 합치기
-        data = srt.fetch()
-        full_text = " ".join([item['text'] for item in data])
-        return full_text
-
-    except Exception as e:
-        error_msg = str(e)
-        if "Subtitles are disabled" in error_msg or "TranscriptsDisabled" in error_msg:
-            raise RuntimeError("이 영상은 크리에이터가 자막(CC) 기능을 완전히 비활성화한 영상입니다.")
-        elif "No transcript found" in error_msg or "NoTranscriptFound" in error_msg:
-            raise RuntimeError("이 영상에는 분석할 수 있는 한국어 또는 영어 자막이 존재하지 않습니다.")
+            # 한국어(ko) 자막 트랙 우선 매칭, 없으면 첫 번째 자막 사용
+            target_track = caption_tracks[0]
+            for track in caption_tracks:
+                if 'ko' in track.get('languageCode', ''):
+                    target_track = track
+                    break
+                    
+            # 자막 XML 주소 획득 후 찌르기
+            timedtext_url = target_track['baseUrl']
+            
+            # 포맷을 기본 XML 대신 텍스트 파싱이 쉬운 json 형태(fmt=json3)로 강제 변환 요청
+            if 'fmt=' not in timedtext_url:
+                timedtext_url += '&fmt=json3'
+            else:
+                timedtext_url = re.sub(r'fmt=[^&]+', 'fmt=json3', timedtext_url)
+                
+            req_text = urllib.request.Request(timedtext_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req_text) as res_text:
+                caption_data = json.loads(res_text.read().decode('utf-8'))
+                
+            # JSON 데이터에서 대사(text)만 깔끔하게 뽑아서 합치기
+            sentences = []
+            for event in caption_data.get('events', []):
+                if 'segs' in event:
+                    text_segments = [seg['utf8'] for seg in event['segs'] if 'utf8' in seg]
+                    clean_text = "".join(text_segments).strip()
+                    if clean_text:
+                        sentences.append(clean_text)
+                        
+            full_text = " ".join(sentences)
+            # 불필요한 줄바꿈 및 다중 공백 정리
+            full_text = re.sub(r'\s+', ' ', full_text).strip()
+            return full_text
+            
         else:
-            raise RuntimeError(f"자막 모듈 우회 수집 중 오류 발생: {error_msg}")
+            raise RuntimeError("유튜브 플레이어 자막 렌더러 데이터를 분석할 수 없습니다.")
+            
+    except Exception as e:
+        raise RuntimeError(f"순수 파이썬 우회 자막 수집 중 최종 실패: {str(e)}")
 
 def analyze_with_gemini(title, script_text):
     """Gemini API를 사용해 영상의 성공 포인트를 분석"""
@@ -144,13 +186,13 @@ if st.button("성공 포인트 정밀 분석하기 🔍", type="primary"):
         if video_id:
             with st.spinner("유튜브 데이터를 수집하고 Gemini AI가 떡상 요인을 도출하는 중입니다..."):
                 try:
-                    # 1. 데이터 수집 (YouTube API + 자막 API 우회기법)
+                    # 1. 데이터 수집 (YouTube API + 순수 파이썬 내부 자막 스크래핑)
                     meta = get_video_details(video_id)
                     if not meta:
                         st.error("영상을 찾을 수 없습니다. URL을 다시 확인해 주세요.")
                         st.stop()
                         
-                    script = get_video_transcript(video_id)
+                    script = get_video_transcript_pure_python(video_id)
                     
                     # 2. Gemini AI 분석 수행
                     analysis_report = analyze_with_gemini(meta['title'], script)
