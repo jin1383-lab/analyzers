@@ -135,11 +135,16 @@ def get_video_transcript_pure_python(video_id):
 
 def analyze_with_gemini_direct_http(title, description, script_text, comments_list):
     """
-    🎯 [v1beta 엔드포인트 정밀 패치]
-    구글 에러 메시지의 권장 사항에 맞춰 API 버전을 v1beta로 변경하여 404 에러를 차단합니다.
+    🎯 [404 모델 에러 타파 우회 전략]
+    서버 환경과 API 계정 정책에 맞춰 동작 가능한 최신 모델명을 순차적으로 순회 시도합니다.
     """
-    # 🛠️ 구글 AI 스튜디오 규격에 맞게 엔드포인트를 v1에서 v1beta로 전격 교체
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
+    # 🛠️ 구글 API 서버가 현시점 정식으로 열어둔 글로벌 핵심 최신 모델 리스트 우선순위 배치
+    fallback_models = [
+        "gemini-2.5-flash", 
+        "gemini-1.5-pro", 
+        "gemini-1.5-flash-8b",
+        "gemini-2.0-flash-exp"
+    ]
     
     has_script = "있음" if script_text else "없음 (제공된 영상 설명과 댓글 위주로 분석 필요)"
     display_script = script_text if script_text else "자막 데이터가 제공되지 않은 영상입니다."
@@ -177,32 +182,43 @@ def analyze_with_gemini_direct_http(title, description, script_text, comments_li
         ]
     }
     
-    try:
-        data = json.dumps(payload).encode('utf-8')
-        req = urllib.request.Request(
-            url, 
-            data=data, 
-            headers={'Content-Type': 'application/json'}
-        )
+    last_error_log = ""
+    
+    # 지원 가능한 유효 모델을 하나씩 순회하며 구글 인프라망을 돌파합니다.
+    for model_name in fallback_models:
+        # v1beta 주소 체계가 전 모델에 가장 범용적이므로 v1beta 기반으로 최종 조율
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_KEY}"
         
-        with urllib.request.urlopen(req) as response:
-            res_json = json.loads(response.read().decode('utf-8'))
-            
-        candidates = res_json.get('candidates', [])
-        if candidates:
-            parts = candidates[0].get('content', {}).get('parts', [])
-            if parts:
-                return parts[0].get('text', '리포트 생성 실패')
-                
-        return f"🚨 구글 API 응답 구조 이상: {json.dumps(res_json)}"
-    except urllib.error.HTTPError as http_err:
         try:
-            error_body = http_err.read().decode('utf-8')
-            return f"🚨 구글 API 서버 HTTP 에러 ({http_err.code}): {error_body}"
-        except:
-            return f"🚨 구글 API 서버 HTTP 에러 ({http_err.code}): {http_err.reason}"
-    except Exception as e:
-        return f"🚨 순수 HTTP 통신 중 오류가 발생했습니다: {str(e)}"
+            data = json.dumps(payload).encode('utf-8')
+            req = urllib.request.Request(
+                url, 
+                data=data, 
+                headers={'Content-Type': 'application/json'}
+            )
+            
+            with urllib.request.urlopen(req) as response:
+                res_json = json.loads(response.read().decode('utf-8'))
+                
+            candidates = res_json.get('candidates', [])
+            if candidates:
+                parts = candidates[0].get('content', {}).get('parts', [])
+                if parts:
+                    return parts[0].get('text', '리포트 생성 실패')
+                    
+        except urllib.error.HTTPError as http_err:
+            try:
+                error_body = http_err.read().decode('utf-8')
+                last_error_log = f"[{model_name}] 에러: {error_body}"
+            except:
+                last_error_log = f"[{model_name}] 에러: {http_err.reason}"
+            continue # 해당 모델이 실패하면 다음 활성화 모델로 토스합니다.
+        except Exception as e:
+            last_error_log = f"[{model_name}] 네트워크 에러: {str(e)}"
+            continue
+            
+    # 정의된 모든 다중 백업 모델이 전멸했을 경우 디버깅 본문 최종 표출
+    return f"🚨 구글 API 모든 세대 모델 호출 실패.\n최종 수신된 서버 메시지:\n{last_error_log}"
 
 # ==========================================
 # 2. Streamlit UI 메인 화면 구성
@@ -236,7 +252,7 @@ if st.button("성공 포인트 정밀 분석하기 🔍", type="primary"):
                     script = get_video_transcript_pure_python(video_id)
                     comments_data = get_video_comments(video_id)
                     
-                    # 3. Gemini AI 분석 수행 (v1beta 순수 HTTP 호출)
+                    # 3. Gemini AI 분석 수행 (다중 우회 체계 작동)
                     analysis_report = analyze_with_gemini_direct_http(meta['title'], meta['description'], script, comments_data)
                     
                     if "🚨" in analysis_report[:10]:
