@@ -18,7 +18,7 @@ try:
     GEMINI_KEY = st.secrets["GEMINI_API_KEY"]
     YOUTUBE_KEY = st.secrets["YOUTUBE_API_KEY"]
     
-    # YouTube Data API 빌드 (Gemini는 라이브러리를 안 쓰므로 유튜브만 빌드)
+    # YouTube Data API 빌드
     youtube = build('youtube', 'v3', developerKey=YOUTUBE_KEY)
 except Exception as e:
     st.error("🚨 API 키 설정 오류: .streamlit/secrets.toml 파일이나 Streamlit Secrets 설정을 확인해 주세요.")
@@ -135,12 +135,11 @@ def get_video_transcript_pure_python(video_id):
 
 def analyze_with_gemini_direct_http(title, description, script_text, comments_list):
     """
-    🎯 [라이브러리 완전 배제 로직]
-    google-generativeai 패키지의 v1beta 404 버그를 완벽히 해결하기 위해
-    구글 오피셜 안정 버전인 v1 엔드포인트로 HTTP POST를 직접 전송합니다.
+    🎯 [엔드포인트 주소 정밀 수정]
+    v1의 404 에러를 타파하기 위해 최신 API 노드인 v1beta 주소 체계로 변경했습니다.
     """
-    # 구글 오피셜 정식 프로덕션 버전(v1) 엔드포인트 URL 지정 (404 원천 차단)
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
+    # 🛠️ 구글 AI 스튜디오 최신 API 라우팅 엔드포인트 주소로 전면 교체
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
     
     has_script = "있음" if script_text else "없음 (제공된 영상 설명과 댓글 위주로 분석 필요)"
     display_script = script_text if script_text else "자막 데이터가 제공되지 않은 영상입니다."
@@ -168,7 +167,6 @@ def analyze_with_gemini_direct_http(title, description, script_text, comments_li
     4. 💡 **크리에이터를 위한 벤치마킹 한 줄 팁**: 이 영상의 성공 공식 중 내 채널에 바로 적용할 수 있는 가장 핵심적인 인사이트를 요약해 주세요.
     """
     
-    # 구글 API 규격에 맞는 JSON 페이로드 페어링
     payload = {
         "contents": [
             {
@@ -190,7 +188,6 @@ def analyze_with_gemini_direct_http(title, description, script_text, comments_li
         with urllib.request.urlopen(req) as response:
             res_json = json.loads(response.read().decode('utf-8'))
             
-        # 응답 데이터 구조 파싱하여 마크다운 텍스트 솎아내기
         candidates = res_json.get('candidates', [])
         if candidates:
             parts = candidates[0].get('content', {}).get('parts', [])
@@ -233,7 +230,7 @@ if st.button("성공 포인트 정밀 분석하기 🔍", type="primary"):
                     script = get_video_transcript_pure_python(video_id)
                     comments_data = get_video_comments(video_id)
                     
-                    # 3. Gemini AI 분석 수행 (순수 HTTP 방식 호출)
+                    # 3. Gemini AI 분석 수행 (v1beta 순수 HTTP 호출)
                     analysis_report = analyze_with_gemini_direct_http(meta['title'], meta['description'], script, comments_data)
                     
                     if "🚨" in analysis_report[:10]:
