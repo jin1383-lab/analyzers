@@ -1,5 +1,5 @@
 streamlit
 google-api-python-client
 youtube-transcript-api
-openai  # 또는 google-generativeai
+google-generativeai
 python-dotenv
