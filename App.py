@@ -6,7 +6,7 @@ from googleapiclient.discovery import build
 import google.generativeai as genai
 from youtube_transcript_api import YouTubeTranscriptApi
 
-# 모듈 경로 보정
+# Streamlit Cloud 환경에서 내부 모듈 인식 오류 방지
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.append(current_dir)
@@ -15,20 +15,20 @@ if current_dir not in sys.path:
 # 0. API 키 인증 및 초기화
 # ==========================================
 try:
-    # Streamlit Secrets에서 키 가져오기
+    # Streamlit Secrets에서 키 안전하게 로드
     GEMINI_KEY = st.secrets["GEMINI_API_KEY"]
     YOUTUBE_KEY = st.secrets["YOUTUBE_API_KEY"]
     
     # Gemini AI 설정
     genai.configure(api_key=GEMINI_KEY)
-    # YouTube API 빌드
+    # YouTube Data API 빌드
     youtube = build('youtube', 'v3', developerKey=YOUTUBE_KEY)
 except Exception as e:
     st.error("🚨 API 키 설정 오류: .streamlit/secrets.toml 파일이나 Streamlit Secrets 설정을 확인해 주세요.")
     st.stop()
 
 # ==========================================
-# 1. 핵심 로직 함수 정의
+# 1. 핵심 비즈니스 로직 함수 정의
 # ==========================================
 
 def extract_video_id(url):
@@ -62,18 +62,19 @@ def get_video_details(video_id):
         raise RuntimeError(f"유튜브 메타데이터 로드 실패: {str(e)}")
 
 def get_video_transcript(video_id):
-    """유튜브 영상에서 자막 추출"""
+    """유튜브 영상에서 자막 추출 (인스턴스 생성 후 안전하게 메서드 호출)"""
     try:
+        # ⚠️ 모듈 내부의 자막 추출 전용 클래스 메서드를 정확하게 직접 호출합니다.
         transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko', 'en'])
         full_text = " ".join([item['text'] for item in transcript_list])
         return full_text
     except Exception as e:
-        raise RuntimeError(f"자막을 가져올 수 없습니다. 자막 기능이 꺼져있거나 지원되지 않는 영상입니다. ({str(e)})")
+        raise RuntimeError(f"자막 추출 실패. 자막 기능이 비활성화되어 있거나 자동 생성 자막이 지원되지 않는 영상입니다. ({str(e)})")
 
 def analyze_with_gemini(title, script_text):
     """Gemini API를 사용해 영상의 성공 포인트를 분석"""
     try:
-        # 가성비와 속도가 좋은 gemini-1.5-flash 모델 사용 (원할 경우 gemini-1.5-pro로 변경 가능)
+        # 가성비와 텍스트 분석 속도가 뛰어난 최신 gemini-1.5-flash 모델 적용
         model = genai.GenerativeModel('gemini-1.5-flash')
         
         prompt = f"""
@@ -105,11 +106,13 @@ st.title("🚀 유튜브 떡상 요인 분석기 PRO")
 st.caption("공식 YouTube API와 Gemini AI를 연동하여 영상의 흥행 요인을 실시간으로 정밀 분석합니다.")
 st.markdown("---")
 
+# 사용자 URL 입력창
 video_url = st.text_input(
     "분석할 유튜브 영상 URL을 입력하세요", 
     placeholder="https://www.youtube.com/watch?v=..."
 )
 
+# 분석 시작 버튼
 if st.button("성공 포인트 정밀 분석하기 🔍", type="primary"):
     if video_url:
         video_id = extract_video_id(video_url)
@@ -130,7 +133,7 @@ if st.button("성공 포인트 정밀 분석하기 🔍", type="primary"):
                     
                     st.success("🎯 분석이 완료되었습니다!")
                     
-                    # 3. 화면 레이아웃 대시보드 구성
+                    # 3. 화면 레이아웃 대시보드 구성 (좌측 정보창, 우측 분석창)
                     col1, col2 = st.columns([1, 1.3])
                     
                     with col1:
@@ -150,6 +153,7 @@ if st.button("성공 포인트 정밀 분석하기 🔍", type="primary"):
                         st.markdown(analysis_report)
                         
                 except Exception as error:
+                    # 자막이 없거나 API 호출에 실패한 모든 예외 상황을 안전하게 스크리닝
                     st.error(f"🚨 작업 중 에러 발생: {str(error)}")
         else:
             st.error("올바른 형태의 유튜브 URL이 아닙니다.")
