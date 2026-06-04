@@ -5,7 +5,6 @@ import json
 import urllib.request
 import streamlit as st
 from googleapiclient.discovery import build
-import google.generativeai as genai
 
 # Streamlit Cloud 환경에서 내부 모듈 인식 오류 방지
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -19,7 +18,7 @@ try:
     GEMINI_KEY = st.secrets["GEMINI_API_KEY"]
     YOUTUBE_KEY = st.secrets["YOUTUBE_API_KEY"]
     
-    genai.configure(api_key=GEMINI_KEY)
+    # YouTube Data API 빌드 (Gemini는 라이브러리를 안 쓰므로 유튜브만 빌드)
     youtube = build('youtube', 'v3', developerKey=YOUTUBE_KEY)
 except Exception as e:
     st.error("🚨 API 키 설정 오류: .streamlit/secrets.toml 파일이나 Streamlit Secrets 설정을 확인해 주세요.")
@@ -134,55 +133,73 @@ def get_video_transcript_pure_python(video_id):
     except:
         return ""
 
-def analyze_with_gemini(title, description, script_text, comments_list):
-    """v1beta API 버전 오류를 원천 우회하는 다중 보완 모델 로직"""
-    # 🎯 [핵심 변경] 어떤 API 버전 노드에서도 강제 매핑되는 풀 리소스 네임 우선 선언 후 예외 보완체계 구축
-    model_names = ['models/gemini-1.5-flash', 'gemini-pro']
+def analyze_with_gemini_direct_http(title, description, script_text, comments_list):
+    """
+    🎯 [라이브러리 완전 배제 로직]
+    google-generativeai 패키지의 v1beta 404 버그를 완벽히 해결하기 위해
+    구글 오피셜 안정 버전인 v1 엔드포인트로 HTTP POST를 직접 전송합니다.
+    """
+    # 구글 오피셜 정식 프로덕션 버전(v1) 엔드포인트 URL 지정 (404 원천 차단)
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
     
-    response_text = ""
-    last_error = None
+    has_script = "있음" if script_text else "없음 (제공된 영상 설명과 댓글 위주로 분석 필요)"
+    display_script = script_text if script_text else "자막 데이터가 제공되지 않은 영상입니다."
+    comments_block = "\n".join(comments_list) if comments_list else "가져온 댓글이 없습니다."
     
-    # 순회하면서 내 환경에서 살아있는 모델을 찾아 분석을 완수합니다.
-    for model_name in model_names:
-        try:
-            model = genai.GenerativeModel(model_name)
+    prompt = f"""
+    당신은 글로벌 유튜브 알고리즘과 콘텐츠 마케팅 전문가입니다.
+    제공된 유튜브 영상의 메타데이터와 데이터를 종합 분석하여 이 영상의 '떡상(흥행)' 핵심 성공 요인을 예리하게 분석해 주세요.
+    
+    [⚠️ 중요 지침]: 
+    제공된 자막이나 댓글이 일본어, 영어 등 '외국어'로 되어 있더라도, 당신은 내용을 완벽히 파악한 뒤
+    **최종 리포트는 무조건 이해하기 쉬운 깔끔한 '한국어'로만 작성**해야 합니다. 외국어 댓글 반응을 인용할 때도 한국어 번역을 곁들여 주세요.
+    
+    [영상 제목]: {title}
+    [영상 설명]: {description[:1000]}
+    [자막 유무]: {has_script}
+    [영상 자막]: {display_script}
+    [시청자 댓글 반응 샘플]:
+    {comments_block}
+    
+    다음 구조에 맞춰 마크다운(Markdown) 형식으로 가독성 좋게 분석 리포트를 작성해 주세요:
+    1. ⚡ **초반 시선 강탈(Hooking) 요인**: 제목, 썸네일 분위기, 그리고 영상 설명이나 자막 초반부를 토대로 시청자를 어떻게 유입시키고 붙잡았는지 분석해 주세요.
+    2. 🎨 **콘텐츠 구성 및 포맷 특징**: 자막(대사) 혹은 댓글 흐름을 보아 유저들이 이 영상에 왜 몰입하고 끝까지 보는지 기승전결 구성을 설명해 주세요.
+    3. 💬 **글로벌 시청자 반응 분석**: 제공된 댓글 반응을 분석하여(외국어인 경우 핵심 트렌드 번역 포함), 시청자들이 특히 어떤 포인트에 열광하거나 감동했는지 '참여 유도 요인'을 짚어주세요.
+    4. 💡 **크리에이터를 위한 벤치마킹 한 줄 팁**: 이 영상의 성공 공식 중 내 채널에 바로 적용할 수 있는 가장 핵심적인 인사이트를 요약해 주세요.
+    """
+    
+    # 구글 API 규격에 맞는 JSON 페이로드 페어링
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ]
+    }
+    
+    try:
+        data = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(
+            url, 
+            data=data, 
+            headers={'Content-Type': 'application/json'}
+        )
+        
+        with urllib.request.urlopen(req) as response:
+            res_json = json.loads(response.read().decode('utf-8'))
             
-            has_script = "있음" if script_text else "없음 (제공된 영상 설명과 댓글 위주로 분석 필요)"
-            display_script = script_text if script_text else "자막 데이터가 제공되지 않은 영상입니다."
-            comments_block = "\n".join(comments_list) if comments_list else "가져온 댓글이 없습니다."
-            
-            prompt = f"""
-            당신은 글로벌 유튜브 알고리즘과 콘텐츠 마케팅 전문가입니다.
-            제공된 유튜브 영상의 메타데이터와 데이터를 종합 분석하여 이 영상의 '떡상(흥행)' 핵심 성공 요인을 예리하게 분석해 주세요.
-            
-            [⚠️ 중요 지침]: 
-            제공된 자막이나 댓글이 일본어, 영어 등 '외국어'로 되어 있더라도, 당신은 내용을 완벽히 파악한 뒤
-            **최종 리포트는 무조건 이해하기 쉬운 깔끔한 '한국어'로만 작성**해야 합니다. 외국어 댓글 반응을 인용할 때도 한국어 번역을 곁들여 주세요.
-            
-            [영상 제목]: {title}
-            [영상 설명]: {description[:1000]}
-            [자막 유무]: {has_script}
-            [영상 자막]: {display_script}
-            [시청자 댓글 반응 샘플]:
-            {comments_block}
-            
-            다음 구조에 맞춰 마크다운(Markdown) 형식으로 가독성 좋게 분석 리포트를 작성해 주세요:
-            1. ⚡ **초반 시선 강탈(Hooking) 요인**: 제목, 썸네일 분위기, 그리고 영상 설명이나 자막 초반부를 토대로 시청자를 어떻게 유입시키고 붙잡았는지 분석해 주세요.
-            2. 🎨 **콘텐츠 구성 및 포맷 특징**: 자막(대사) 혹은 댓글 흐름을 보아 유저들이 이 영상에 왜 몰입하고 끝까지 보는지 기승전결 구성을 설명해 주세요.
-            3. 💬 **글로벌 시청자 반응 분석**: 제공된 댓글 반응을 분석하여(외국어인 경우 핵심 트렌드 번역 포함), 시청자들이 특히 어떤 포인트에 열광하거나 감동했는지 '참여 유도 요인'을 짚어주세요.
-            4. 💡 **크리에이터를 위한 벤치마킹 한 줄 팁**: 이 영상의 성공 공식 중 내 채널에 바로 적용할 수 있는 가장 핵심적인 인사이트를 요약해 주세요.
-            """
-            
-            response = model.generate_content(prompt)
-            response_text = response.text
-            if response_text:
-                return response_text # 분석 성공 시 즉시 결과 반환
-        except Exception as e:
-            last_error = e
-            continue # 실패 시 다음 모델(`gemini-pro`)로 우회 처리
-            
-    # 모든 모델이 실패했을 경우 최종 에러 반환
-    return f"🚨 Gemini AI 모든 모델 분석 실패. 최종 에러: {str(last_error)}"
+        # 응답 데이터 구조 파싱하여 마크다운 텍스트 솎아내기
+        candidates = res_json.get('candidates', [])
+        if candidates:
+            parts = candidates[0].get('content', {}).get('parts', [])
+            if parts:
+                return parts[0].get('text', '리포트 생성 실패')
+                
+        return f"🚨 구글 API 응답 구조 이상: {json.dumps(res_json)}"
+    except Exception as e:
+        return f"🚨 순수 HTTP 통신 중 오류가 발생했습니다: {str(e)}"
 
 # ==========================================
 # 2. Streamlit UI 메인 화면 구성
@@ -216,10 +233,10 @@ if st.button("성공 포인트 정밀 분석하기 🔍", type="primary"):
                     script = get_video_transcript_pure_python(video_id)
                     comments_data = get_video_comments(video_id)
                     
-                    # 3. Gemini AI 분석 수행 (다중 탐색 모델 적용)
-                    analysis_report = analyze_with_gemini(meta['title'], meta['description'], script, comments_data)
+                    # 3. Gemini AI 분석 수행 (순수 HTTP 방식 호출)
+                    analysis_report = analyze_with_gemini_direct_http(meta['title'], meta['description'], script, comments_data)
                     
-                    if "🚨 Gemini AI 모든 모델 분석 실패" in analysis_report:
+                    if "🚨" in analysis_report[:10]:
                         st.error(analysis_report)
                     else:
                         st.success("🎯 글로벌 트렌드 분석 완료!")
