@@ -4,6 +4,8 @@ import re
 import streamlit as st
 from googleapiclient.discovery import build
 import google.generativeai as genai
+# ⚠️ 에러 방지를 위해 모듈과 클래스를 완벽하게 명시하여 임포트합니다.
+import youtube_transcript_api
 from youtube_transcript_api import YouTubeTranscriptApi
 
 # Streamlit Cloud 환경에서 내부 모듈 인식 오류 방지
@@ -62,14 +64,21 @@ def get_video_details(video_id):
         raise RuntimeError(f"유튜브 메타데이터 로드 실패: {str(e)}")
 
 def get_video_transcript(video_id):
-    """유튜브 영상에서 자막 추출 (인스턴스 생성 후 안전하게 메서드 호출)"""
+    """유튜브 영상에서 자막 추출 (가장 안전한 절대 경로 호출 방식 적용)"""
     try:
-        # ⚠️ 모듈 내부의 자막 추출 전용 클래스 메서드를 정확하게 직접 호출합니다.
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko', 'en'])
+        # 🎯 최상위 모듈 패키지에서 클래스 함수를 다이렉트로 호출하여 'AttributeError'를 원천 차단합니다.
+        transcript_list = youtube_transcript_api.YouTubeTranscriptApi.get_transcript(video_id, languages=['ko', 'en'])
         full_text = " ".join([item['text'] for item in transcript_list])
         return full_text
     except Exception as e:
-        raise RuntimeError(f"자막 추출 실패. 자막 기능이 비활성화되어 있거나 자동 생성 자막이 지원되지 않는 영상입니다. ({str(e)})")
+        # 구체적인 에러 메시지를 파싱하여 안내 문구를 정밀화합니다.
+        error_msg = str(e)
+        if "Subtitles are disabled" in error_msg or "TranscriptsDisabled" in error_msg:
+            raise RuntimeError("이 영상은 크리에이터가 자막(CC) 기능을 완전히 비활성화한 영상입니다.")
+        elif "No transcript found" in error_msg or "NoTranscriptFound" in error_msg:
+            raise RuntimeError("이 영상에는 분석할 수 있는 한국어 또는 영어 자막(자동 생성 포함)이 존재하지 않습니다.")
+        else:
+            raise RuntimeError(f"자막을 가져오는 과정에서 예상치 못한 오류가 발생했습니다. ({error_msg})")
 
 def analyze_with_gemini(title, script_text):
     """Gemini API를 사용해 영상의 성공 포인트를 분석"""
@@ -153,7 +162,7 @@ if st.button("성공 포인트 정밀 분석하기 🔍", type="primary"):
                         st.markdown(analysis_report)
                         
                 except Exception as error:
-                    # 자막이 없거나 API 호출에 실패한 모든 예외 상황을 안전하게 스크리닝
+                    # 자막 관련 예외 상황 혹은 API 에러 상황을 화면에 안전하게 표출
                     st.error(f"🚨 작업 중 에러 발생: {str(error)}")
         else:
             st.error("올바른 형태의 유튜브 URL이 아닙니다.")
