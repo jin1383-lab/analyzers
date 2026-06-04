@@ -4,9 +4,7 @@ import re
 import streamlit as st
 from googleapiclient.discovery import build
 import google.generativeai as genai
-# ⚠️ 에러 방지를 위해 모듈과 클래스를 완벽하게 명시하여 임포트합니다.
 import youtube_transcript_api
-from youtube_transcript_api import YouTubeTranscriptApi
 
 # Streamlit Cloud 환경에서 내부 모듈 인식 오류 방지
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -34,8 +32,9 @@ except Exception as e:
 # ==========================================
 
 def extract_video_id(url):
-    """유튜브 URL에서 11자리 Video ID 추출"""
-    pattern = r'(?:v=|\/|be\/|embed\/)([0-9A-Za-z_-]{11})'
+    """유튜브 URL에서 11자리 Video ID 추출 (주소 뒤 공백/파라미터 제거 보강)"""
+    url = url.strip()
+    pattern = r'(?:v=|\/|be\/|embed\/|shorts\/)([0-9A-Za-z_-]{11})'
     match = re.search(pattern, url)
     return match.group(1) if match else None
 
@@ -64,26 +63,42 @@ def get_video_details(video_id):
         raise RuntimeError(f"유튜브 메타데이터 로드 실패: {str(e)}")
 
 def get_video_transcript(video_id):
-    """유튜브 영상에서 자막 추출 (가장 안전한 절대 경로 호출 방식 적용)"""
+    """
+    [우회 로직 적용]has no attribute 'get_transcript' 에러를 완벽히 우회하기 위해 
+    list_transcripts() 객체를 통해 내부 자막 딕셔너리를 직접 파싱합니다.
+    """
     try:
-        # 🎯 최상위 모듈 패키지에서 클래스 함수를 다이렉트로 호출하여 'AttributeError'를 원천 차단합니다.
-        transcript_list = youtube_transcript_api.YouTubeTranscriptApi.get_transcript(video_id, languages=['ko', 'en'])
-        full_text = " ".join([item['text'] for item in transcript_list])
+        # 1. 영상에 등록된 모든 자막 리스트를 먼저 가져옵니다 (가장 안전한 메서드)
+        transcript_list_obj = youtube_transcript_api.YouTubeTranscriptApi.list_transcripts(video_id)
+        
+        try:
+            # 한국어 자막 탐색 수집
+            srt = transcript_list_obj.find_transcript(['ko'])
+        except:
+            try:
+                # 한국어가 없으면 영어 자막 탐색
+                srt = transcript_list_obj.find_transcript(['en'])
+            except:
+                # 둘 다 없으면 자동으로 생성된 첫 번째 자막 강제 선택
+                srt = transcript_list_obj.find_generated_transcript(['ko', 'en'])
+                
+        # 2. 선택된 자막 데이터를 텍스트로 합치기
+        data = srt.fetch()
+        full_text = " ".join([item['text'] for item in data])
         return full_text
+
     except Exception as e:
-        # 구체적인 에러 메시지를 파싱하여 안내 문구를 정밀화합니다.
         error_msg = str(e)
         if "Subtitles are disabled" in error_msg or "TranscriptsDisabled" in error_msg:
             raise RuntimeError("이 영상은 크리에이터가 자막(CC) 기능을 완전히 비활성화한 영상입니다.")
         elif "No transcript found" in error_msg or "NoTranscriptFound" in error_msg:
-            raise RuntimeError("이 영상에는 분석할 수 있는 한국어 또는 영어 자막(자동 생성 포함)이 존재하지 않습니다.")
+            raise RuntimeError("이 영상에는 분석할 수 있는 한국어 또는 영어 자막이 존재하지 않습니다.")
         else:
-            raise RuntimeError(f"자막을 가져오는 과정에서 예상치 못한 오류가 발생했습니다. ({error_msg})")
+            raise RuntimeError(f"자막 모듈 우회 수집 중 오류 발생: {error_msg}")
 
 def analyze_with_gemini(title, script_text):
     """Gemini API를 사용해 영상의 성공 포인트를 분석"""
     try:
-        # 가성비와 텍스트 분석 속도가 뛰어난 최신 gemini-1.5-flash 모델 적용
         model = genai.GenerativeModel('gemini-1.5-flash')
         
         prompt = f"""
@@ -129,7 +144,7 @@ if st.button("성공 포인트 정밀 분석하기 🔍", type="primary"):
         if video_id:
             with st.spinner("유튜브 데이터를 수집하고 Gemini AI가 떡상 요인을 도출하는 중입니다..."):
                 try:
-                    # 1. 데이터 수집 (YouTube API + 자막 API)
+                    # 1. 데이터 수집 (YouTube API + 자막 API 우회기법)
                     meta = get_video_details(video_id)
                     if not meta:
                         st.error("영상을 찾을 수 없습니다. URL을 다시 확인해 주세요.")
@@ -142,7 +157,7 @@ if st.button("성공 포인트 정밀 분석하기 🔍", type="primary"):
                     
                     st.success("🎯 분석이 완료되었습니다!")
                     
-                    # 3. 화면 레이아웃 대시보드 구성 (좌측 정보창, 우측 분석창)
+                    # 3. 화면 레이아웃 대시보드 구성
                     col1, col2 = st.columns([1, 1.3])
                     
                     with col1:
@@ -162,7 +177,6 @@ if st.button("성공 포인트 정밀 분석하기 🔍", type="primary"):
                         st.markdown(analysis_report)
                         
                 except Exception as error:
-                    # 자막 관련 예외 상황 혹은 API 에러 상황을 화면에 안전하게 표출
                     st.error(f"🚨 작업 중 에러 발생: {str(error)}")
         else:
             st.error("올바른 형태의 유튜브 URL이 아닙니다.")
