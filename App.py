@@ -75,13 +75,11 @@ def get_video_comments(video_id, max_results=30):
         comments = []
         for item in response.get('items', []):
             comment = item['snippet']['topLevelComment']['snippet']['textDisplay']
-            # html 태그 및 줄바꿈 가볍게 청소
             comment = re.sub(r'<[^>]*>', '', comment).strip()
             if comment:
                 comments.append(comment)
         return comments
     except:
-        # 🎯 에러가 났던 135번째 줄 부근입니다. 빈 리스트를 정상적으로 반환하도록 들여쓰기 블록을 맞췄습니다.
         return []
 
 def get_video_transcript_pure_python(video_id):
@@ -137,9 +135,10 @@ def get_video_transcript_pure_python(video_id):
         return ""
 
 def analyze_with_gemini(title, description, script_text, comments_list):
-    """자막 유무 및 다국어 댓글을 고려하여 Gemini 분석 수행 (한국어 답변 강제)"""
+    """안정적인 공식 모델 명칭을 활용하여 글로벌 분석 리포트 생성"""
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # 🎯 [수정 포인트] 구글 v1beta API 버전에서 404 에러가 나지 않는 가장 범용적인 'gemini-1.5-flash-latest' 스트링 모델 명칭으로 교체했습니다.
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
         
         has_script = "있음" if script_text else "없음 (제공된 영상 설명과 댓글 위주로 분석 필요)"
         display_script = script_text if script_text else "자막 데이터가 제공되지 않은 영상입니다."
