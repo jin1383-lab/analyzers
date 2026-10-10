@@ -44,7 +44,6 @@ def get_video_metadata(url):
 
 def analyze_with_gemini(api_key, prompt_text):
     client = genai.Client(api_key=api_key)
-    # 최신 지원 모델 지정
     response = client.models.generate_content(
         model='gemini-2.5-flash',
         contents=prompt_text,
@@ -65,15 +64,29 @@ with tab1:
                 with st.spinner("유튜브 메타데이터 수집 및 AI 분석 중..."):
                     meta = get_video_metadata(video_url)
                     
-                    prompt = f"""
-                    다음 유튜브 영상 정보를 바탕으로 주요 시청자층과 키워드를 분석해줘.
+                    prompt = (
+                        "다음 유튜브 영상 정보를 바탕으로 주요 시청자층과 키워드를 분석해줘.\n\n"
+                        f"[영상 정보]\n"
+                        f"- 제목: {meta['title']}\n"
+                        f"- 채널명: {meta['uploader']}\n"
+                        f"- 설명: {str(meta['description'])[:500]}\n"
+                        f"- 태그: {meta['tags']}\n"
+                        f"- 조회수: {meta['view_count']}\n\n"
+                        "[요청 사항]\n"
+                        "1. 예상 타겟 시청자층 (성별 비율, 연령대, 주요 시청 시간대)\n"
+                        "2. 핵심 키워드 (한국어, 영어, 일본어 각 5개씩)\n"
+                        "3. 추천 해시태그"
+                    )
                     
-                    [영상 정보]
-                    - 제목: {meta['title']}
-                    - 채널명: {meta['uploader']}
-                    - 설명: {meta['description'][:500]}
-                    - 태그: {meta['tags']}
-                    - 조회수: {meta['view_count']}
+                    result = analyze_with_gemini(api_key, prompt)
                     
-                    [요청 사항]
-                    1
+                    st.success("분석이 완료되었습니다!")
+                    st.markdown("### 📊 분석 결과")
+                    st.markdown(result)
+                    
+            except Exception as e:
+                st.error(f"분석 중 오류가 발생했습니다: {e}")
+
+with tab2:
+    st.subheader("채널 일괄 분석 (준비 중)")
+    st.info("채널 URL을 입력받아 주요 영상들을 종합 분석하는 기능입니다.")
