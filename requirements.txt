@@ -1,1 +1,3 @@
-requirements.txt [generated with web_code_canvas tool]
+streamlit
+yt-dlp
+google-genai
