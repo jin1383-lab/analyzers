@@ -1,1 +1,1 @@
-pip install -r requirements.txt
+requirements.txt [generated with web_code_canvas tool]
