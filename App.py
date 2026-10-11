@@ -10,7 +10,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# [수정] st.secrets에서 API 키를 우선적으로 가져오고, 없으면 사이드바 입력창 표시
+# st.secrets에서 API 키를 우선적으로 가져오고, 없으면 사이드바 입력창 표시
 api_key = None
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
@@ -48,8 +48,9 @@ def get_video_metadata(url):
 
 def analyze_with_gemini(api_key, prompt_text):
     client = genai.Client(api_key=api_key)
+    # 최신 권장 모델로 수정
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-3.8-flash',
         contents=prompt_text,
     )
     return response.text
