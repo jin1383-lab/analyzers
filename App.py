@@ -23,7 +23,7 @@ st.sidebar.markdown("💡 **팁:** `yt-dlp`를 이용해 유튜브 메타데이�
 
 # 메인 타이틀
 st.title("🎯 유튜브 콘텐츠 & 채널 타겟 분석기")
-st.markdown("유튜브 개별 영상 또는 채널 주소를 입력하면 AI가 시청자층(성별, 연령대, 시간대)과 글로벌 키워드를 분석합니다.")
+st.markdown("유튜브 개별 영상 또는 채널 주소를 입력하면 AI가 글로벌 키워드와 해시태그를 분석합니다.")
 
 # 탭 구성
 tab1, tab2 = st.tabs(["🎬 개별 영상 분석", "📺 채널 일괄 분석"])
@@ -48,7 +48,6 @@ def get_video_metadata(url):
 
 def analyze_with_gemini(api_key, prompt_text):
     client = genai.Client(api_key=api_key)
-    # 최신 권장 모델로 수정
     response = client.models.generate_content(
         model='gemini-3.8-flash',
         contents=prompt_text,
@@ -69,8 +68,9 @@ with tab1:
                 with st.spinner("유튜브 메타데이터 수집 및 AI 분석 중..."):
                     meta = get_video_metadata(video_url)
                     
+                    # 시청자층 항목이 빠지도록 프롬프트 수정
                     prompt = (
-                        "다음 유튜브 영상 정보를 바탕으로 주요 시청자층과 키워드를 분석해줘.\n\n"
+                        "다음 유튜브 영상 정보를 바탕으로 핵심 키워드와 해시태그를 분석해줘.\n\n"
                         f"[영상 정보]\n"
                         f"- 제목: {meta['title']}\n"
                         f"- 채널명: {meta['uploader']}\n"
@@ -78,9 +78,8 @@ with tab1:
                         f"- 태그: {meta['tags']}\n"
                         f"- 조회수: {meta['view_count']}\n\n"
                         "[요청 사항]\n"
-                        "1. 예상 타겟 시청자층 (성별 비율, 연령대, 주요 시청 시간대)\n"
-                        "2. 핵심 키워드 (한국어, 영어, 일본어 각 5개씩)\n"
-                        "3. 추천 해시태그"
+                        "1. 핵심 키워드 (한국어, 영어, 일본어 각 5개씩)\n"
+                        "2. 추천 해시태그"
                     )
                     
                     result = analyze_with_gemini(api_key, prompt)
