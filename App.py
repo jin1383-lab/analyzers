@@ -45,8 +45,9 @@ def get_video_metadata(url):
 
 def analyze_with_gemini(api_key, prompt_text):
     client = genai.Client(api_key=api_key)
+    # 최신 권장 모델명으로 수정
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-3.8-flash',
         contents=prompt_text,
     )
     return response.text
