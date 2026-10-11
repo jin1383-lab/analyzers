@@ -10,9 +10,13 @@ st.set_page_config(
     layout="wide"
 )
 
-# 사이드바 설정
-st.sidebar.header("설정")
-api_key = st.sidebar.text_input("Google Gemini API Key", type="password")
+# [수정] st.secrets에서 API 키를 우선적으로 가져오고, 없으면 사이드바 입력창 표시
+api_key = None
+if "GEMINI_API_KEY" in st.secrets:
+    api_key = st.secrets["GEMINI_API_KEY"]
+else:
+    st.sidebar.header("설정")
+    api_key = st.sidebar.text_input("Google Gemini API Key", type="password")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("💡 **팁:** `yt-dlp`를 이용해 유튜브 메타데이터를 수집합니다.")
@@ -56,7 +60,7 @@ with tab1:
     
     if st.button("분석 시작", key="btn_single"):
         if not api_key:
-            st.error("좌측 사이드바에 Google Gemini API Key를 입력해주세요.")
+            st.error("API Key가 설정되지 않았습니다. Streamlit Secrets 또는 사이드바에 키를 입력해주세요.")
         elif not video_url:
             st.warning("유튜브 영상 URL을 입력해주세요.")
         else:
